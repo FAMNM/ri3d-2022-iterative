@@ -24,6 +24,7 @@ import edu.wpi.first.cscore.CvSource;
 import edu.wpi.first.cscore.UsbCamera;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
@@ -46,13 +47,18 @@ public class Robot extends TimedRobot {
   WPI_VictorSPX leftDrive2;
   WPI_VictorSPX rightDrive1;
   WPI_VictorSPX rightDrive2;
-  WPI_VictorSPX shooterWheel1;
-  WPI_VictorSPX shooterWheel2;
   MotorControllerGroup leftDrive;
   MotorControllerGroup rightDrive;
   DifferentialDrive differentialDrive;
 
-  Servo servoMotor;
+  WPI_VictorSPX shooterWheel1;
+  WPI_VictorSPX shooterWheel2;
+  MotorControllerGroup shooter;
+
+  WPI_VictorSPX intake;
+
+  //Servo with a CAM to push the cargo through the shooter motors
+  Servo cargoPusher;
 
   //Used for vision processing
   UsbCamera camera = CameraServer.startAutomaticCapture();
@@ -67,6 +73,9 @@ public class Robot extends TimedRobot {
 
   final int CAMERA_WIDTH = 320;
   final int CAMERA_HEIGHT = 240;
+
+  ShooterState shooterState = ShooterState.Halt;
+  Timer timer = new Timer();
 
   /** This function is run when the robot is first started up. */
   @Override
@@ -86,6 +95,10 @@ public class Robot extends TimedRobot {
     rightDrive2 = new WPI_VictorSPX(9);
     shooterWheel1 = new WPI_VictorSPX(4);
     shooterWheel2 = new WPI_VictorSPX(5);
+    intake = new WPI_VictorSPX(1);
+
+    shooterWheel1.setInverted(true);
+    shooter = new MotorControllerGroup(shooterWheel1, shooterWheel2);
 
     rightDrive1.setInverted(true);
     rightDrive2.setInverted(true);
@@ -95,7 +108,7 @@ public class Robot extends TimedRobot {
 
     differentialDrive = new DifferentialDrive(leftDrive, rightDrive);
 
-    servoMotor = new Servo(0);
+    cargoPusher = new Servo(0);
     camera.setResolution(CAMERA_WIDTH, CAMERA_HEIGHT);
   }
 
@@ -185,20 +198,55 @@ public class Robot extends TimedRobot {
       differentialDrive.arcadeDrive(0, 0);
     }
 
-    // If the A button is pressed, enable the shooter motors
-    if(driver.getRawButton(1)) {
-      shooterWheel1.set(-0.73);
-      shooterWheel2.set(0.75);
+    if(driver.getRawButton(4)) {
+      intake.set(0.25);
     } else {
-      shooterWheel1.set(0);
-      shooterWheel2.set(0);
+      intake.set(0);
     }
-
-    // Move the servo and B and X button presses
-    if(driver.getRawButton(2)) {
-      servoMotor.set(0);
-    } else if(driver.getRawButton(3)) {
-      servoMotor.set(1);
+    
+    switch(shooterState) {
+      case WarmUpHigh:
+        shooter.set(0.85);
+        cargoPusher.set(0);
+        if(timer.get() >= 3.0) {
+          shooterState = ShooterState.CargoUp;
+          resetTimer();
+        }
+      break;
+      case WarmUpLow:
+        shooter.set(0.4);
+        cargoPusher.set(0);
+        if(timer.get() >= 3.0) {
+          shooterState = ShooterState.CargoUp;
+          resetTimer();
+        }
+      break;
+      case CargoUp:
+        shooter.set(shooter.get());
+        cargoPusher.set(1.0);
+        if(timer.get() >= 1.5) {
+          shooterState = ShooterState.Halt;
+          shooter.set(0);
+          cargoPusher.set(0);
+        }
+      break;
+      case Halt:
+        shooter.set(driver.getRawButton(1) ? 0.85 : 0);
+        if(driver.getRawButton(2)) {
+          cargoPusher.set(0);
+        } else if(driver.getRawButton(3)) {
+          cargoPusher.set(1);
+        }
+        if(driver.getRawButtonPressed(8)) {
+          shooterState = ShooterState.WarmUpHigh;
+          resetTimer();
+        } else if(driver.getRawButtonPressed(7)) {
+          shooterState = ShooterState.WarmUpLow;
+          resetTimer();
+        }
+      break;
+      default:
+      break;
     }
   }
 
@@ -218,4 +266,13 @@ public class Robot extends TimedRobot {
   @Override
   public void testPeriodic() {}
 
+  void resetTimer() {
+    timer.stop();
+    timer.reset();
+    timer.start();
+  }
+
+  public enum ShooterState {
+    WarmUpHigh, WarmUpLow, CargoUp, Halt
+  };
 }
