@@ -15,7 +15,6 @@ import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.imgproc.Moments;
 
@@ -26,7 +25,6 @@ import edu.wpi.first.cscore.UsbCamera;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
-import edu.wpi.first.wpilibj.GenericHID.RumbleType;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -41,8 +39,8 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 public class Robot extends TimedRobot {
 
   // Driving Controls
-  XboxController xboxLeft;
-  XboxController xboxRight;
+  XboxController driver;
+  XboxController manipulator;
 
   // DriveTrain Motors
   WPI_VictorSPX leftDrive1;
@@ -51,14 +49,26 @@ public class Robot extends TimedRobot {
   WPI_VictorSPX rightDrive2;
   WPI_VictorSPX shooterWheel1;
   WPI_VictorSPX shooterWheel2;
-  
   MotorControllerGroup leftDrive;
   MotorControllerGroup rightDrive;
-
   DifferentialDrive differentialDrive;
 
   Servo servoMotor;
 
+  UsbCamera camera = CameraServer.startAutomaticCapture();
+
+  CvSink cvSink;
+  CvSource outputStream;
+  
+  Mat source = new Mat();
+  Mat hsvmat = new Mat();
+  Mat coreOutput = new Mat();
+
+  double visionXLocation = 0;
+  double visionYLocation = 0;
+
+  final int CAMERA_WIDTH = 320;
+  final int CAMERA_HEIGHT = 240;
 
   /**
    * This function is run when the robot is first started up and should be used for any
@@ -66,75 +76,11 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotInit() {
+    cvSink = CameraServer.getVideo();
+    outputStream = CameraServer.putVideo("vision", CAMERA_WIDTH, CAMERA_HEIGHT);
 
-    new Thread(() -> {
-      UsbCamera camera = CameraServer.startAutomaticCapture();
-      camera.setResolution(320, 240);
-      // camera.setResolution(10, 10);
-
-      CvSink cvSink = CameraServer.getVideo();
-      CvSource outputStream = CameraServer.putVideo("Blur", 320, 240);
-      // CvSource outputStream = CameraServer.putVideo("Blur", 10, 10);
-      
-      Mat source = new Mat();
-      Mat hsvmat = new Mat();
-      Mat coreOutput = new Mat();
-      Mat rgbmat = new Mat();
-      
-      while(!Thread.interrupted()) {
-        if(cvSink.grabFrame(source) == 0) {
-          continue;
-        }
-
-        Imgproc.cvtColor(source, hsvmat, Imgproc.COLOR_RGB2HSV_FULL);
-        
-        // Imgproc.GaussianBlur(hsvmat, blurOutput, new Size(9, 9), 0, 0);
-        // Imgproc.blur(hsvmat, blurOutput, new Size(9,9));
-        // Imgproc.erode(blurOutput, erodeOutput, new Size(5,5));
-        // Imgproc.medianBlur(hsvmat, blurOutput, 9);
-
-        Core.inRange(hsvmat, new Scalar(120,Integer.MIN_VALUE,Integer.MIN_VALUE), new Scalar(140,Integer.MAX_VALUE,Integer.MAX_VALUE), coreOutput);
-        // 115 to 130
-        // 105 to 130 was also good
-
-        List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
-
-        Imgproc.findContours(coreOutput, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
-        double maxArea = 0;
-        MatOfPoint maxContour = new MatOfPoint();
-        Iterator<MatOfPoint> each = contours.iterator();
-        while (each.hasNext()) {
-
-          MatOfPoint wrapper = each.next();
-          double area = Imgproc.contourArea(wrapper);
-          if (area > maxArea) {
-            maxArea = area;
-            maxContour = wrapper;
-          }
-        }
-
-        SmartDashboard.putNumber("DB/String 0", 160);
-        SmartDashboard.putNumber("DB/String 1", 160);
-
-        if (maxArea != 0) {
-          Moments m = Imgproc.moments(maxContour, false);
-          int x = (int) (m.get_m10() / m.get_m00());
-          int y = (int) (m.get_m01() / m.get_m00());
-          Imgproc.circle(source, new Point(x, y), 10, new Scalar(255, 0, 0));
-          SmartDashboard.putNumber("DB/String 0", x);
-          SmartDashboard.putNumber("DB/String 1", y);
-        }
-        
-        
-        
-
-
-        outputStream.putFrame(source);
-      }
-    }).start();
-
-    xboxLeft = new XboxController(0);
-    // xboxRight = new XboxController(1);
+    driver = new XboxController(0);
+    // manipulator = new XboxController(1);
 
     leftDrive1 = new WPI_VictorSPX(6);
     leftDrive2 = new WPI_VictorSPX(7);
@@ -152,29 +98,70 @@ public class Robot extends TimedRobot {
     differentialDrive = new DifferentialDrive(leftDrive, rightDrive);
 
     servoMotor = new Servo(0);
-
+    camera.setResolution(320, 240);
   }
 
-  /**
-   * This function is called every robot packet, no matter the mode. Use this for items like
-   * diagnostics that you want ran during disabled, autonomous, teleoperated and test.
-   *
-   * <p>This runs after the mode specific periodic functions, but before LiveWindow and
-   * SmartDashboard integrated updating.
-   */
+  /** This function is called periodically while the robot is on. */
   @Override
-  public void robotPeriodic() {}
+  public void robotPeriodic() {
+    nextVisionFrame();
+  }
 
-  /**
-   * This autonomous (along with the chooser code above) shows how to select between different
-   * autonomous modes using the dashboard. The sendable chooser code works with the Java
-   * SmartDashboard. If you prefer the LabVIEW Dashboard, remove all of the chooser code and
-   * uncomment the getString line to get the auto name from the text box below the Gyro
-   *
-   * <p>You can add additional auto modes by adding additional comparisons to the switch structure
-   * below with additional strings. If using the SendableChooser make sure to add them to the
-   * chooser code above as well.
-   */
+  //This function is called periodically to do vision processing computations
+  public void nextVisionFrame() {
+
+    // Grab the current camera frame and put it in the source Mat (short for Matrix)
+    long valid = cvSink.grabFrame(source);
+
+    // If the camera isn't providing video feed, do not proceed with processing
+    if(valid == 0) {
+      return;
+    }
+
+    // Convert the source image to the HSV (hue, saturation, value) color scheme and place it in hsvmat
+    Imgproc.cvtColor(source, hsvmat, Imgproc.COLOR_RGB2HSV_FULL);
+
+    // Highlight every pixel that matches the ball color and place the new matrix in coreOutput
+    Core.inRange(hsvmat, new Scalar(120,Integer.MIN_VALUE,Integer.MIN_VALUE), new Scalar(140,Integer.MAX_VALUE,Integer.MAX_VALUE), coreOutput);
+    
+    // Create an array that will contain every "contour" - a cluster of highlighted pixels
+    List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
+
+    // Use Image Processing to detect every contour
+    Imgproc.findContours(coreOutput, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+    // Out of all of the detected contours, select the largest one
+    double maxArea = 0;
+    MatOfPoint maxContour = new MatOfPoint();
+    Iterator<MatOfPoint> each = contours.iterator();
+    while (each.hasNext()) {
+      MatOfPoint wrapper = each.next();
+      double area = Imgproc.contourArea(wrapper);
+      if (area > maxArea) {
+        maxArea = area;
+        maxContour = wrapper;
+      }
+    }
+
+    // For as long as the largest area isn't 0 (i.e., there is at least one contour), record its position
+    if (maxArea != 0) {
+      Moments m = Imgproc.moments(maxContour, false);
+      int x = (int) (m.get_m10() / m.get_m00());
+      int y = (int) (m.get_m01() / m.get_m00());
+
+      // Draw a circle where the object is located
+      Imgproc.circle(source, new Point(x, y), 10, new Scalar(255, 0, 0));
+
+      // Scales the location to -1.0 to 1.0
+      visionXLocation = ((double) x) * 2.0 / CAMERA_WIDTH - 1.0;
+      visionYLocation = ((double) y) * 2.0 / CAMERA_HEIGHT - 1.0;
+    }
+
+    // Output the camera feed to the SmartDashboard
+    outputStream.putFrame(source);
+  }
+
+  /** This function is called once when autonomous is enabled. */
   @Override
   public void autonomousInit() {}
 
@@ -189,17 +176,19 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
+    // Get the drive speeds from the driver XBox controller
+    double xSpeed = driver.getRawAxis(1);
+    double zRotation = driver.getRawAxis(4);
 
-    double xSpeed = xboxLeft.getRawAxis(1);
-    double zRotation = xboxLeft.getRawAxis(4);
-
+    // If the drive joysticks are off-center, allow the driver to move the robot
     if(Math.abs(xSpeed) >= 0.05 || Math.abs(zRotation) >= 0.05) {
       differentialDrive.arcadeDrive(xSpeed, zRotation);
     } else {
       differentialDrive.arcadeDrive(0, 0);
     }
 
-    if (xboxLeft.getRawButton(1)) {
+    // If the A button is pressed, enable the shooter motors
+    if(driver.getRawButton(1)) {
       shooterWheel1.set(-0.73);
       shooterWheel2.set(0.75);
     } else {
@@ -207,19 +196,12 @@ public class Robot extends TimedRobot {
       shooterWheel2.set(0);
     }
 
-    if (xboxLeft.getRawButton(2)) {
-
-      // servoMotor.setSpeed(0.1);
+    // Move the servo and B and X button presses
+    if(driver.getRawButton(2)) {
       servoMotor.set(0);
-
-    } else if (xboxLeft.getRawButton(3)) {
-
-      // servoMotor.setSpeed(-0.1);
+    } else if(driver.getRawButton(3)) {
       servoMotor.set(1);
-
     }
-
-  
   }
 
   /** This function is called once when the robot is disabled. */
@@ -238,20 +220,4 @@ public class Robot extends TimedRobot {
   @Override
   public void testPeriodic() {}
 
-
-
-  public void turnTowardsBall() {
-    //top left is 0, 0
-    //bottom right is 320, 240
-    // goal is x = 160
-
-    int x = (int) SmartDashboard.getNumber("DB/String 0", 160);
-
-    if (x > 165) {
-      // turn right
-    } else if (x < 155) {
-      // turn left
-    }
-
-  }
 }
