@@ -58,9 +58,9 @@ public class Robot extends TimedRobot {
   UsbCamera camera = CameraServer.startAutomaticCapture();
   CvSink cvSink;
   CvSource outputStream;
-  Mat source = new Mat();
-  Mat hsvmat = new Mat();
-  Mat coreOutput = new Mat();
+  Mat source;
+  Mat hsvmat;
+  Mat coreOutput;
 
   double visionXLocation = 0;
   double visionYLocation = 0;
@@ -73,6 +73,9 @@ public class Robot extends TimedRobot {
   public void robotInit() {
     cvSink = CameraServer.getVideo();
     outputStream = CameraServer.putVideo("vision", CAMERA_WIDTH, CAMERA_HEIGHT);
+    source = new Mat();
+    hsvmat = new Mat();
+    coreOutput = new Mat();
 
     driver = new XboxController(0);
     // manipulator = new XboxController(1);
