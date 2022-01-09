@@ -27,7 +27,6 @@ import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
 
 /**
@@ -55,11 +54,10 @@ public class Robot extends TimedRobot {
 
   Servo servoMotor;
 
+  //Used for vision processing
   UsbCamera camera = CameraServer.startAutomaticCapture();
-
   CvSink cvSink;
   CvSource outputStream;
-  
   Mat source = new Mat();
   Mat hsvmat = new Mat();
   Mat coreOutput = new Mat();
@@ -70,10 +68,7 @@ public class Robot extends TimedRobot {
   final int CAMERA_WIDTH = 320;
   final int CAMERA_HEIGHT = 240;
 
-  /**
-   * This function is run when the robot is first started up and should be used for any
-   * initialization code.
-   */
+  /** This function is run when the robot is first started up. */
   @Override
   public void robotInit() {
     cvSink = CameraServer.getVideo();
@@ -98,7 +93,7 @@ public class Robot extends TimedRobot {
     differentialDrive = new DifferentialDrive(leftDrive, rightDrive);
 
     servoMotor = new Servo(0);
-    camera.setResolution(320, 240);
+    camera.setResolution(CAMERA_WIDTH, CAMERA_HEIGHT);
   }
 
   /** This function is called periodically while the robot is on. */
@@ -107,7 +102,7 @@ public class Robot extends TimedRobot {
     nextVisionFrame();
   }
 
-  //This function is called periodically to do vision processing computations
+  // This function is called periodically to do vision processing computations
   public void nextVisionFrame() {
 
     // Grab the current camera frame and put it in the source Mat (short for Matrix)
@@ -134,17 +129,17 @@ public class Robot extends TimedRobot {
     double maxArea = 0;
     MatOfPoint maxContour = new MatOfPoint();
     Iterator<MatOfPoint> each = contours.iterator();
-    while (each.hasNext()) {
+    while(each.hasNext()) {
       MatOfPoint wrapper = each.next();
       double area = Imgproc.contourArea(wrapper);
-      if (area > maxArea) {
+      if(area > maxArea) {
         maxArea = area;
         maxContour = wrapper;
       }
     }
 
     // For as long as the largest area isn't 0 (i.e., there is at least one contour), record its position
-    if (maxArea != 0) {
+    if(maxArea != 0) {
       Moments m = Imgproc.moments(maxContour, false);
       int x = (int) (m.get_m10() / m.get_m00());
       int y = (int) (m.get_m01() / m.get_m00());
