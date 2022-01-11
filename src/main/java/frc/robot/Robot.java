@@ -55,10 +55,13 @@ public class Robot extends TimedRobot {
   WPI_VictorSPX shooterWheel2;
   MotorControllerGroup shooter;
 
+  WPI_VictorSPX winch;
+
   WPI_VictorSPX intake;
 
   //Servo with a CAM to push the cargo through the shooter motors
-  Servo cargoPusher;
+  Servo cargoPusher1;
+  Servo cargoPusher2;
 
   //Used for vision processing
   UsbCamera camera = CameraServer.startAutomaticCapture();
@@ -87,8 +90,9 @@ public class Robot extends TimedRobot {
     coreOutput = new Mat();
 
     driver = new XboxController(0);
-    // manipulator = new XboxController(1);
+    manipulator = new XboxController(1);
 
+    winch = new WPI_VictorSPX(3);
     leftDrive1 = new WPI_VictorSPX(6);
     leftDrive2 = new WPI_VictorSPX(7);
     rightDrive1 = new WPI_VictorSPX(8);
@@ -108,7 +112,8 @@ public class Robot extends TimedRobot {
 
     differentialDrive = new DifferentialDrive(leftDrive, rightDrive);
 
-    cargoPusher = new Servo(0);
+    cargoPusher1 = new Servo(0);
+    cargoPusher2 = new Servo(0);
     camera.setResolution(CAMERA_WIDTH, CAMERA_HEIGHT);
   }
 
@@ -203,11 +208,21 @@ public class Robot extends TimedRobot {
     } else {
       intake.set(0);
     }
+
+    if(manipulator.getRawAxis(5) < -0.15) {
+      winch.set(-0.25);
+    } else if(manipulator.getRawAxis(5) > 0.15) {
+      winch.set(0.25);
+    } else {
+      winch.set(0);
+    }
     
     switch(shooterState) {
       case WarmUpHigh:
         shooter.set(0.85);
-        cargoPusher.set(0);
+        cargoPusher1.set(0);
+        cargoPusher2.set(0);
+        
         if(timer.get() >= 3.0) {
           shooterState = ShooterState.CargoUp;
           resetTimer();
@@ -215,7 +230,8 @@ public class Robot extends TimedRobot {
       break;
       case WarmUpLow:
         shooter.set(0.4);
-        cargoPusher.set(0);
+        cargoPusher1.set(0);
+        cargoPusher2.set(0);
         if(timer.get() >= 3.0) {
           shooterState = ShooterState.CargoUp;
           resetTimer();
@@ -223,19 +239,23 @@ public class Robot extends TimedRobot {
       break;
       case CargoUp:
         shooter.set(shooter.get());
-        cargoPusher.set(1.0);
+        cargoPusher1.set(1.0);
+        cargoPusher2.set(1.0);
         if(timer.get() >= 1.5) {
           shooterState = ShooterState.Halt;
           shooter.set(0);
-          cargoPusher.set(0);
+          cargoPusher1.set(0);
+          cargoPusher2.set(0);
         }
       break;
       case Halt:
         shooter.set(driver.getRawButton(1) ? 0.85 : 0);
         if(driver.getRawButton(2)) {
-          cargoPusher.set(0);
+          cargoPusher1.set(0);
+          cargoPusher2.set(0);
         } else if(driver.getRawButton(3)) {
-          cargoPusher.set(1);
+          cargoPusher1.set(1);
+          cargoPusher2.set(1);
         }
         if(driver.getRawButtonPressed(8)) {
           shooterState = ShooterState.WarmUpHigh;
